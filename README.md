@@ -245,3 +245,8 @@ Examples:
 - `creators="Ada Lovelace; Grace Hopper"`
 - `creators="author: Turing, Alan; editor: Knuth, Donald"`
 - `tags="reading-queue, llm, bibliography"`
+
+## FAQ
+
+- **Why can’t one MCP handle every Zotero library I care about?**  
+  Zotero locks every request to a single library prefix (`/users/<id>` or `/groups/<id>`) and the API key you provide. Each MCP instance is configured at startup with one `ZOTERO_LIBRARY_TYPE`/`ZOTERO_LIBRARY_ID` plus the matching key, so all tool calls are scoped to that library. Supporting multiple groups simultaneously therefore requires either (a) running one MCP per target library (each Docker/container has its own env file/key) or (b) building a dispatcher that routes the agent to different MCP instances on demand. That’s why one running MCP cannot talk to multiple Zotero libraries at the same time—each deployment is bound to its configured library.
