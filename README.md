@@ -1,72 +1,56 @@
 # Stratosphere MCP Zotero
 
-A Python MCP server that exposes Zotero as a small set of research-library workflows for AI assistants. Instead of mirroring raw Zotero endpoints, it is designed around common agent stories like finding sources, reviewing a collection, inspecting one saved source, and saving or updating library metadata.
+A Python MCP server that connects your Zotero library to AI assistants. Rather than exposing raw API endpoints, it offers a small set of tools shaped around how researchers actually work: finding sources, browsing collections, inspecting items, and saving or updating metadata.
 
-Compatible with Claude, Gemini CLI, OpenAI Codex, and any MCP-compatible client.
-
-
+Works with Claude, Gemini CLI, OpenAI Codex, and any MCP-compatible client.
 
 ## MCP Agent Stories
 
-The server currently exposes these curated tools:
+This server is built around how researchers use Zotero, not around the API surface. Instead of exposing raw endpoints, it offers five tools shaped by real workflows:
 
-- `find_library_sources`
-- `inspect_saved_source`
-- `review_collection`
-- `save_source_to_library`
-- `update_saved_source`
+1. **Find sources** - `find_library_sources` searches your library by keyword, DOI, or author and returns compact summaries with optional collection context. The natural starting point for any research question.
+2. **Inspect a source** - Once you have an item key, `inspect_saved_source` returns its full normalized metadata. Useful for checking what's already saved before adding a duplicate.
+3. **Browse a collection** - `review_collection` resolves a collection by name or key, summarizes it, and lists its top items (plus child collections if you ask). Good for "what do I have on X?"
+4. **Save a source** - `save_source_to_library` takes a title, creators, tags, and collection assignments and adds the item to your library, returning a summary of what was saved.
+5. **Update metadata** - `update_saved_source` patches only the fields you provide: fix a DOI, add tags, move to a different collection, without touching anything else.
 
-The workflow is shaped by these stories:
+Collection arguments accept either a name or a key. If a name is ambiguous, the tool returns candidates so the agent can resolve it.
 
-1. **Discover saved sources** – Use `find_library_sources` whenever the agent needs relevant documents for a research question, DOI check, or author filter; the tool returns compact summaries plus optional collection context.
-2. **Inspect a known source** – After discovery, call `inspect_saved_source` to surface normalized metadata for a specific Zotero item key, with an optional raw object for deep dives.
-3. **Review a collection** – When the user asks “What’s in that collection?”, `review_collection` resolves the name/key, summarizes collection metadata, and returns its top sources (plus child collections when requested).
-4. **Save a source** – Provide title, creators (`;`-separated), tags (comma-separated), collections, etc. to `save_source_to_library`, which builds the Zotero payload and reports back the saved summary.
-5. **Update metadata** – Use `update_saved_source` to fix DOIs, retitle, add tags, or reassign collections by supplying only the fields that need to change; unchanged parameters stay untouched.
+For `save_source_to_library` and `update_saved_source`, use `;` to separate creators and `,` for tags:
 
-Collection arguments accept either collection names or collection keys. If a name is ambiguous, the tool returns candidate keys so the agent can recover cleanly.
-
-For `save_source_to_library` and `update_saved_source`, creators use `;` as a separator and tags use `,`.
-Examples:
-
-- `creators="Ada Lovelace; Grace Hopper"`
-- `creators="author: Turing, Alan; editor: Knuth, Donald"`
-- `tags="reading-queue, llm, bibliography"`
+```
+creators="Ada Lovelace; Grace Hopper"
+creators="author: Turing, Alan; editor: Knuth, Donald"
+tags="reading-queue, llm, bibliography"
+```
 
 ## Prerequisites
 
-Create a Zotero API key:
+**Zotero API key:**
 
-1. Open your Zotero account settings
-2. Go to the API Keys section
-3. Create a dedicated key with the library permissions you want this MCP to use
-4. Copy the key into your `.env` in the next step
+1. Go to your Zotero account settings → API Keys
+2. Create a key with the library permissions you need
+3. Copy it into your `.env` file
 
-Choose a target library:
+**Target library:**
 
-1. Set `ZOTERO_LIBRARY_TYPE=user` for your personal library or `group` for a group library.
-2. The `ZOTERO_LIBRARY_ID` must be the group’s **numeric ID** (from `https://www.zotero.org/groups/<ID>/…`) whenever `ZOTERO_LIBRARY_TYPE=group`; it is optional for `user`, because personal libraries are auto-resolved from the key.
-3. Ensure the API key you use has access to the specified library (groups have separate permissions from personal libraries).
+- Set `ZOTERO_LIBRARY_TYPE=user` for your personal library or `group` for a group library.
+- `ZOTERO_LIBRARY_ID` is the numeric group ID from `zotero.org/groups/<ID>/…`. Required for group libraries, optional for personal ones (auto-resolved from the key).
+- Make sure the API key has access to the library you specify (group and personal permissions are separate).
 
 ## Quick start (Docker)
 
-### Step 1: Build
-
 ```bash
+# Build
 docker compose build
-```
 
-### Step 2: Configure
-
-```bash
+# Configure
 cp .env.example .env
-# Fill in ZOTERO_API_KEY
+# Fill in ZOTERO_API_KEY, then lock down the file:
+chmod 600 .env
 ```
 
-> This file contains your API key in plain text. Restrict its permissions:
-> `chmod 600 .env`
-
-### Step 3: Register with your AI assistant
+**Register with your AI assistant:**
 
 <details>
 <summary><strong>Claude</strong></summary>
@@ -89,8 +73,7 @@ cp .env.example .env
 }
 ```
 
-Replace `/absolute/path/to/.env` with the full path to your `.env` file. Claude Desktop
-launches Docker from an unspecified working directory, so relative paths do not work.
+Use the full path to your `.env` file. Claude Desktop launches Docker from an unknown working directory, so relative paths won't work.
 
 **Claude Code:**
 
@@ -106,7 +89,7 @@ claude mcp add --transport stdio zotero -- \
 <details>
 <summary><strong>Gemini CLI</strong></summary>
 
-Edit `~/.gemini/settings.json` (or `.gemini/settings.json` in your project root for project-scoped config):
+Edit `~/.gemini/settings.json` (or `.gemini/settings.json` in your project root):
 
 ```json
 {
@@ -124,14 +107,12 @@ Edit `~/.gemini/settings.json` (or `.gemini/settings.json` in your project root 
 }
 ```
 
-Replace `/absolute/path/to/.env` with the full path to your `.env` file.
-
 </details>
 
 <details>
 <summary><strong>OpenAI Codex</strong></summary>
 
-Edit `~/.codex/config.toml` (or `.codex/config.toml` in your project root for project-scoped config):
+Edit `~/.codex/config.toml` (or `.codex/config.toml` in your project root):
 
 ```toml
 [[mcp_servers]]
@@ -145,135 +126,10 @@ args = [
 ]
 ```
 
-Replace `/absolute/path/to/.env` with the full path to your `.env` file.
-
 </details>
-
-
-## Alternative: local install (without Docker)
-
-### Step 1: Install
-
-```bash
-git clone https://github.com/stratosphereips/strato-mcp-zotero
-cd strato-mcp-zotero
-uv venv && source .venv/bin/activate
-uv pip install -e .
-```
-
-### Step 2: Configure
-
-```bash
-cp .env.example .env
-# Fill in ZOTERO_API_KEY
-```
-
-> This file contains your API key in plain text. Restrict its permissions:
-> `chmod 600 .env`
-
-### Step 3: Register with your AI assistant
-
-<details>
-<summary><strong>Claude</strong></summary>
-
-**Claude Desktop** — edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-> This file will contain your API key in plain text. Restrict its permissions
-> after editing: `chmod 600 ~/Library/Application\ Support/Claude/claude_desktop_config.json`.
-
-```json
-{
-  "mcpServers": {
-    "zotero": {
-      "command": "/absolute/path/.venv/bin/zotero-mcp",
-      "env": {
-        "ZOTERO_API_KEY": "your_api_key"
-      }
-    }
-  }
-}
-```
-
-**Claude Code:**
-
-```bash
-claude mcp add zotero /absolute/path/.venv/bin/zotero-mcp \
-  --env-file /absolute/path/to/.env
-```
-
-</details>
-
-<details>
-<summary><strong>Gemini CLI</strong></summary>
-
-Edit `~/.gemini/settings.json` (or `.gemini/settings.json` in your project root for project-scoped config):
-
-```json
-{
-  "mcpServers": {
-    "zotero": {
-      "command": "/absolute/path/.venv/bin/zotero-mcp",
-      "env": {
-        "ZOTERO_API_KEY": "your_api_key"
-      }
-    }
-  }
-}
-```
-
-> This file will contain your API key in plain text. Restrict its permissions
-> after editing: `chmod 600 ~/.gemini/settings.json`.
-
-</details>
-
-<details>
-<summary><strong>OpenAI Codex</strong></summary>
-
-Edit `~/.codex/config.toml` (or `.codex/config.toml` in your project root for project-scoped config):
-
-```toml
-[[mcp_servers]]
-name = "zotero"
-command = "/absolute/path/.venv/bin/zotero-mcp"
-
-[mcp_servers.env]
-ZOTERO_API_KEY = "your_api_key"
-```
-
-> This file will contain your API key in plain text. Restrict its permissions
-> after editing: `chmod 600 ~/.codex/config.toml`.
-
-</details>
-
-
-## Tools
-
-The server currently exposes these curated tools:
-
-- `find_library_sources`
-- `inspect_saved_source`
-- `review_collection`
-- `save_source_to_library`
-- `update_saved_source`
-
-The workflow is shaped by these stories:
-
-1. **Discover saved sources** – Use `find_library_sources` whenever the agent needs relevant documents for a research question, DOI check, or author filter; the tool returns compact summaries plus optional collection context.
-2. **Inspect a known source** – After discovery, call `inspect_saved_source` to surface normalized metadata for a specific Zotero item key, with an optional raw object for deep dives.
-3. **Review a collection** – When the user asks “What’s in that collection?”, `review_collection` resolves the name/key, summarizes collection metadata, and returns its top sources (plus child collections when requested).
-4. **Save a source** – Provide title, creators (`;`-separated), tags (comma-separated), collections, etc. to `save_source_to_library`, which builds the Zotero payload and reports back the saved summary.
-5. **Update metadata** – Use `update_saved_source` to fix DOIs, retitle, add tags, or reassign collections by supplying only the fields that need to change; unchanged parameters stay untouched.
-
-Collection arguments accept either collection names or collection keys. If a name is ambiguous, the tool returns candidate keys so the agent can recover cleanly.
-
-For `save_source_to_library` and `update_saved_source`, creators use `;` as a separator and tags use `,`.
-Examples:
-
-- `creators="Ada Lovelace; Grace Hopper"`
-- `creators="author: Turing, Alan; editor: Knuth, Donald"`
-- `tags="reading-queue, llm, bibliography"`
 
 ## FAQ
 
-- **Why can’t one MCP handle every Zotero library I care about?**  
-  Zotero locks every request to a single library prefix (`/users/<id>` or `/groups/<id>`) and the API key you provide. Each MCP instance is configured at startup with one `ZOTERO_LIBRARY_TYPE`/`ZOTERO_LIBRARY_ID` plus the matching key, so all tool calls are scoped to that library. Supporting multiple groups simultaneously therefore requires either (a) running one MCP per target library (each Docker/container has its own env file/key) or (b) building a dispatcher that routes the agent to different MCP instances on demand. That’s why one running MCP cannot talk to multiple Zotero libraries at the same time—each deployment is bound to its configured library.
+**Why can't one MCP instance talk to multiple Zotero libraries?**
+
+Zotero's API scopes every request to a single library (either `/users/<id>` or `/groups/<id>`) based on the key you configure. Each running instance is bound to one `ZOTERO_LIBRARY_TYPE`/`ZOTERO_LIBRARY_ID` pair at startup. To work with multiple libraries simultaneously, run one MCP instance per library (each with its own env file), or build a dispatcher that routes requests to different instances.
