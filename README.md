@@ -5,21 +5,6 @@ A Python MCP server that exposes Zotero as a small set of research-library workf
 Compatible with Claude, Gemini CLI, OpenAI Codex, and any MCP-compatible client.
 
 
-## Prerequisites
-
-Create a Zotero API key:
-
-1. Open your Zotero account settings
-2. Go to the API Keys section
-3. Create a dedicated key with the library permissions you want this MCP to use
-4. Copy the key into your `.env` in the next step
-
-Choose a target library:
-
-1. Set `ZOTERO_LIBRARY_TYPE=user` for your personal library or `group` for a group library.
-2. The `ZOTERO_LIBRARY_ID` must be the group’s **numeric ID** (from `https://www.zotero.org/groups/<ID>/…`) whenever `ZOTERO_LIBRARY_TYPE=group`; it is optional for `user`, because personal libraries are auto-resolved from the key.
-3. Ensure the API key you use has access to the specified library (groups have separate permissions from personal libraries).
-
 
 ## MCP Agent Stories
 
@@ -47,6 +32,21 @@ Examples:
 - `creators="Ada Lovelace; Grace Hopper"`
 - `creators="author: Turing, Alan; editor: Knuth, Donald"`
 - `tags="reading-queue, llm, bibliography"`
+
+## Prerequisites
+
+Create a Zotero API key:
+
+1. Open your Zotero account settings
+2. Go to the API Keys section
+3. Create a dedicated key with the library permissions you want this MCP to use
+4. Copy the key into your `.env` in the next step
+
+Choose a target library:
+
+1. Set `ZOTERO_LIBRARY_TYPE=user` for your personal library or `group` for a group library.
+2. The `ZOTERO_LIBRARY_ID` must be the group’s **numeric ID** (from `https://www.zotero.org/groups/<ID>/…`) whenever `ZOTERO_LIBRARY_TYPE=group`; it is optional for `user`, because personal libraries are auto-resolved from the key.
+3. Ensure the API key you use has access to the specified library (groups have separate permissions from personal libraries).
 
 ## Quick start (Docker)
 
