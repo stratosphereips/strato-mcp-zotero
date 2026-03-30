@@ -41,7 +41,11 @@ class StubClient:
             raise ZoteroApiError("missing", status_code=404)
         if path.endswith("/collections/COLL1234") and method == "GET":
             return {"key": "COLL1234", "data": {"name": "Reading Queue"}}, None
+        if path.endswith("/collections/COLL1234/collections") and method == "GET":
+            return [{"key": "SUB12345", "data": {"name": "Week 1"}}], _response_headers()
         if path.endswith("/collections") and method == "GET":
+            if path.count("/collections") > 1:
+                return [], _response_headers()
             return [
                 {"key": "COLL1234", "data": {"name": "Reading Queue"}},
                 {"key": "COLL5678", "data": {"name": "Machine Learning"}},
@@ -140,6 +144,13 @@ class TestLibraryTools:
             doi="10.1000/updated",
         )
         assert result["source"]["item_key"] == "ABCD1234"
+
+def test_find_collection_by_name_recurses():
+    from zotero_mcp.zotero.library import find_collection_by_name_or_key
+
+    client = StubClient()
+    result = find_collection_by_name_or_key(client, "Week 1")
+    assert result["key"] == "SUB12345"
 
 
 def test_collection_resolution_reports_ambiguous_matches():

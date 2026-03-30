@@ -63,6 +63,7 @@ def resolve_collection_inputs(client: Any, collections: str) -> list[str]:
 def _iter_all_collections(client: Any) -> list[dict[str, Any]]:
     """Yield all collections by walking each parent recursively."""
     queue: list[str | None] = [None]
+    seen: set[str] = set()
     while queue:
         parent = queue.pop(0)
         start = 0
@@ -77,8 +78,12 @@ def _iter_all_collections(client: Any) -> list[dict[str, Any]]:
             )
             collections = page["items"]
             for item in collections:
-                yield item
                 key = item.get("key") or item.get("data", {}).get("key")
+                if key and key in seen:
+                    continue
+                if key:
+                    seen.add(key)
+                yield item
                 if key:
                     queue.append(key)
             if len(collections) < 100:
