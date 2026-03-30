@@ -16,9 +16,9 @@ Create a Zotero API key:
 
 Choose a target library:
 
-1. Set `ZOTERO_LIBRARY_TYPE=user` for your personal library or `group` for a group library
-2. If you use a group library, set `ZOTERO_LIBRARY_ID` explicitly
-3. For a user library, `ZOTERO_LIBRARY_ID` is optional because the server can resolve the user ID from the API key metadata at startup
+1. Set `ZOTERO_LIBRARY_TYPE=user` for your personal library or `group` for a group library.
+2. The `ZOTERO_LIBRARY_ID` must be the group’s **numeric ID** (from `https://www.zotero.org/groups/<ID>/…`) whenever `ZOTERO_LIBRARY_TYPE=group`; it is optional for `user`, because personal libraries are auto-resolved from the key.
+3. Ensure the API key you use has access to the specified library (groups have separate permissions from personal libraries).
 
 
 ## Quick start (Docker)
