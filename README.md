@@ -21,6 +21,33 @@ Choose a target library:
 3. Ensure the API key you use has access to the specified library (groups have separate permissions from personal libraries).
 
 
+## MCP Agent Stories
+
+The server currently exposes these curated tools:
+
+- `find_library_sources`
+- `inspect_saved_source`
+- `review_collection`
+- `save_source_to_library`
+- `update_saved_source`
+
+The workflow is shaped by these stories:
+
+1. **Discover saved sources** – Use `find_library_sources` whenever the agent needs relevant documents for a research question, DOI check, or author filter; the tool returns compact summaries plus optional collection context.
+2. **Inspect a known source** – After discovery, call `inspect_saved_source` to surface normalized metadata for a specific Zotero item key, with an optional raw object for deep dives.
+3. **Review a collection** – When the user asks “What’s in that collection?”, `review_collection` resolves the name/key, summarizes collection metadata, and returns its top sources (plus child collections when requested).
+4. **Save a source** – Provide title, creators (`;`-separated), tags (comma-separated), collections, etc. to `save_source_to_library`, which builds the Zotero payload and reports back the saved summary.
+5. **Update metadata** – Use `update_saved_source` to fix DOIs, retitle, add tags, or reassign collections by supplying only the fields that need to change; unchanged parameters stay untouched.
+
+Collection arguments accept either collection names or collection keys. If a name is ambiguous, the tool returns candidate keys so the agent can recover cleanly.
+
+For `save_source_to_library` and `update_saved_source`, creators use `;` as a separator and tags use `,`.
+Examples:
+
+- `creators="Ada Lovelace; Grace Hopper"`
+- `creators="author: Turing, Alan; editor: Knuth, Donald"`
+- `tags="reading-queue, llm, bibliography"`
+
 ## Quick start (Docker)
 
 ### Step 1: Build
