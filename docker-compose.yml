@@ -1,0 +1,7 @@
+services:
+  mcp:
+    build: .
+    image: zotero-mcp:latest
+    command: serve
+    stdin_open: true
+    env_file: .env
