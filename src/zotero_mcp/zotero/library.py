@@ -24,27 +24,14 @@ def find_collection_by_name_or_key(client: Any, collection: str) -> dict[str, An
     fuzzy_matches: list[dict[str, Any]] = []
     start = 0
 
-    while True:
-        page = list_collections(
-            client,
-            limit=100,
-            start=start,
-            sort="title",
-            direction="asc",
-        )
-        collections = page["items"]
-        for item in collections:
-            name = _collection_name(item)
-            if not name:
-                continue
-            if name.lower() == lowered:
-                exact_matches.append(item)
-            elif lowered in name.lower():
-                fuzzy_matches.append(item)
-
-        if len(collections) < 100:
-            break
-        start += 100
+    for item in _iter_all_collections(client):
+        name = _collection_name(item)
+        if not name:
+            continue
+        if name.lower() == lowered:
+            exact_matches.append(item)
+        elif lowered in name.lower():
+            fuzzy_matches.append(item)
 
     if len(exact_matches) == 1:
         return exact_matches[0]
@@ -71,6 +58,32 @@ def resolve_collection_inputs(client: Any, collections: str) -> list[str]:
         if key:
             resolved.append(key)
     return resolved
+
+
+def _iter_all_collections(client: Any) -> list[dict[str, Any]]:
+    """Yield all collections by walking each parent recursively."""
+    queue: list[str | None] = [None]
+    while queue:
+        parent = queue.pop(0)
+        start = 0
+        while True:
+            page = list_collections(
+                client,
+                parent_collection_key=parent,
+                limit=100,
+                start=start,
+                sort="title",
+                direction="asc",
+            )
+            collections = page["items"]
+            for item in collections:
+                yield item
+                key = item.get("key") or item.get("data", {}).get("key")
+                if key:
+                    queue.append(key)
+            if len(collections) < 100:
+                break
+            start += 100
 
 
 def summarize_item(item: dict[str, Any], *, include_raw: bool = False) -> dict[str, Any]:
