@@ -6,6 +6,7 @@ from typing import Any
 
 from zotero_mcp.zotero.client import ZoteroApiError
 from zotero_mcp.zotero.collections import list_collections
+from zotero_mcp.zotero.groups import list_groups, scoped_client_for
 from zotero_mcp.zotero.items import create_item, get_item, list_items, search_items, update_item
 from zotero_mcp.zotero.library import (
     build_source_changes,
@@ -59,8 +60,42 @@ def _extract_created_key(result: dict[str, Any]) -> str | None:
     return None
 
 
+def _library_label(library_spec: str) -> str:
+    """Return a display name for a library specifier."""
+    spec = library_spec.strip()
+    if not spec or spec.lower() == "personal":
+        return "personal library"
+    return spec
+
+
 def register_library_tools(mcp: Any, get_client: Any) -> None:
     """Register workflow-first Zotero tools."""
+
+    @mcp.tool(
+        name="list_libraries",
+        annotations=_tool_annotations(read_only=True),
+    )
+    def list_libraries() -> dict[str, Any]:
+        """List all Zotero libraries accessible with the configured API key.
+
+        Returns the personal library and all group libraries the user belongs to,
+        with their names and IDs. Use this tool first when the user refers to a
+        library or group by name, so you can resolve the name before searching.
+
+        Returns:
+            personal: The user's personal library with its prefix.
+            groups: A list of group libraries, each with group_id, name, and library_prefix.
+        """
+        client = get_client()
+        user_id = client.get_user_id()
+        groups = list_groups(client)
+        return {
+            "personal": {
+                "library_prefix": f"/users/{user_id}",
+                "description": "Your personal Zotero library",
+            },
+            "groups": groups,
+        }
 
     @mcp.tool(
         name="find_library_sources",
@@ -68,6 +103,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
     )
     def find_library_sources(
         query: str,
+        library: str = "",
         limit: int = 8,
         collection: str = "",
         item_type: str = "",
@@ -80,9 +116,13 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         - "find papers about retrieval-augmented generation"
         - "do I already have this DOI in Zotero?"
         - "show sources by Kahneman in my ML collection"
+        - "find papers on deception in the 'Deception Research' group"
 
         Args:
             query: Search text to run against the Zotero library.
+            library: Which library to search. Accepts "personal" (default), a group name
+                     such as "Deception Research", or a numeric group ID. Leave empty to
+                     use the default configured library.
             limit: Maximum number of matches to return. Strong default: 8.
             collection: Optional Zotero collection name or key to search inside.
             item_type: Optional Zotero item type such as 'book' or 'journalArticle'.
@@ -96,7 +136,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         if not query.strip():
             raise ValueError("query must not be empty")
 
-        client = get_client()
+        client = scoped_client_for(get_client(), library)
         collection_key = ""
         collection_summary = None
         if collection.strip():
@@ -115,16 +155,88 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         )
         return {
             "query": query.strip(),
+            "library": _library_label(library),
             "collection": collection_summary,
             "count": result["count"],
             "sources": [summarize_item(item) for item in result["items"]],
         }
 
     @mcp.tool(
+        name="search_across_libraries",
+        annotations=_tool_annotations(read_only=True),
+    )
+    def search_across_libraries(
+        query: str,
+        libraries: str,
+        limit: int = 8,
+        item_type: str = "",
+        tag: str = "",
+    ) -> dict[str, Any]:
+        """Search for sources across multiple Zotero libraries in one call.
+
+        Use this when the user wants to check several libraries at once, e.g.:
+        - "do I have any papers about bananas in 'Exotic Research' or my personal library?"
+        - "search for 'LLM' across all my group libraries"
+
+        Args:
+            query: Search text to run against each library.
+            libraries: Comma-separated list of library names to search. Use "personal" for
+                       the personal library and group names or IDs for group libraries.
+                       Example: "personal, Deception Research, Exotic Research"
+            limit: Maximum results per library. Default: 8.
+            item_type: Optional Zotero item type filter applied to all libraries.
+            tag: Optional tag filter applied to all libraries.
+
+        Returns:
+            results: A dict keyed by library name, each containing count and sources.
+            total_count: Total number of matches across all libraries.
+        """
+        if not query.strip():
+            raise ValueError("query must not be empty")
+
+        library_specs = [s.strip() for s in libraries.split(",") if s.strip()]
+        if not library_specs:
+            raise ValueError("libraries must contain at least one library name")
+
+        base_client = get_client()
+        results: dict[str, Any] = {}
+        total_count = 0
+
+        for spec in library_specs:
+            label = _library_label(spec)
+            try:
+                client = scoped_client_for(base_client, spec)
+                result = search_items(
+                    client,
+                    query=query.strip(),
+                    limit=limit,
+                    item_type=item_type.strip() or None,
+                    tag=tag.strip() or None,
+                )
+                count = result["count"]
+                total_count += count
+                results[label] = {
+                    "count": count,
+                    "sources": [summarize_item(item) for item in result["items"]],
+                }
+            except ZoteroApiError as exc:
+                results[label] = {"error": str(exc), "count": 0, "sources": []}
+
+        return {
+            "query": query.strip(),
+            "total_count": total_count,
+            "results": results,
+        }
+
+    @mcp.tool(
         name="inspect_saved_source",
         annotations=_tool_annotations(read_only=True),
     )
-    def inspect_saved_source(item_key: str, include_raw: bool = False) -> dict[str, Any]:
+    def inspect_saved_source(
+        item_key: str,
+        library: str = "",
+        include_raw: bool = False,
+    ) -> dict[str, Any]:
         """Inspect one saved source by Zotero item key.
 
         Use this after you already know the item key and need details for answering a question,
@@ -132,6 +244,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
 
         Args:
             item_key: Zotero item key returned by another tool or known by the user.
+            library: Which library the item belongs to. Accepts "personal" (default),
+                     a group name, or a numeric group ID.
             include_raw: When true, also include the full raw Zotero item object.
 
         Returns:
@@ -139,7 +253,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         """
         if not item_key.strip():
             raise ValueError("item_key must not be empty")
-        return summarize_item(get_item(get_client(), item_key.strip()), include_raw=include_raw)
+        client = scoped_client_for(get_client(), library)
+        return summarize_item(get_item(client, item_key.strip()), include_raw=include_raw)
 
     @mcp.tool(
         name="review_collection",
@@ -147,6 +262,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
     )
     def review_collection(
         collection: str,
+        library: str = "",
         limit: int = 12,
         include_subcollections: bool = False,
     ) -> dict[str, Any]:
@@ -159,6 +275,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
 
         Args:
             collection: Zotero collection name or key.
+            library: Which library to look in. Accepts "personal" (default),
+                     a group name, or a numeric group ID.
             limit: Maximum number of item summaries to return from the collection.
             include_subcollections: Include direct child collections in the response.
 
@@ -168,12 +286,13 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         if not collection.strip():
             raise ValueError("collection must not be empty")
 
-        client = get_client()
+        client = scoped_client_for(get_client(), library)
         resolved = find_collection_by_name_or_key(client, collection)
         collection_key = resolved.get("key") or resolved.get("data", {}).get("key", "")
         items_result = list_items(client, collection_key=collection_key, limit=limit)
 
         response: dict[str, Any] = {
+            "library": _library_label(library),
             "collection": summarize_collection(resolved),
             "source_count": items_result["count"],
             "sources": [summarize_item(item) for item in items_result["items"]],
@@ -200,6 +319,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
     def save_source_to_library(
         item_type: str,
         title: str,
+        library: str = "",
         creators: str = "",
         year: str = "",
         doi: str = "",
@@ -220,6 +340,10 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         Collection format: comma-separated collection names or keys.
         Tags format: comma-separated tag names.
 
+        Args:
+            library: Which library to save into. Accepts "personal" (default),
+                     a group name, or a numeric group ID.
+
         Returns:
             A confirmation plus a compact summary of the newly saved source when Zotero returns the new item key.
         """
@@ -230,7 +354,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
                 "title must not be empty. For uncommon item types, call prepare_source_template first."
             )
 
-        client = get_client()
+        client = scoped_client_for(get_client(), library)
         extra_fields = _parse_json_object(
             extra_fields_json,
             argument_name="extra_fields_json",
@@ -256,6 +380,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
 
         response: dict[str, Any] = {
             "message": "Source saved to Zotero.",
+            "library": _library_label(library),
             "write_result": write_result,
         }
         if created_key:
@@ -270,6 +395,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
     )
     def update_saved_source(
         item_key: str,
+        library: str = "",
         title: str = "",
         creators: str = "",
         year: str = "",
@@ -293,13 +419,17 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         Only provided fields are changed. Empty strings mean "leave as is".
         To update uncommon Zotero-specific fields, pass them in extra_fields_json.
 
+        Args:
+            library: Which library the item belongs to. Accepts "personal" (default),
+                     a group name, or a numeric group ID.
+
         Returns:
             A confirmation plus an updated compact summary of the source.
         """
         if not item_key.strip():
             raise ValueError("item_key must not be empty")
 
-        client = get_client()
+        client = scoped_client_for(get_client(), library)
         extra_fields = _parse_json_object(
             extra_fields_json,
             argument_name="extra_fields_json",
@@ -334,6 +464,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         updated_item = get_item(client, item_key.strip())
         return {
             "message": "Source updated in Zotero.",
+            "library": _library_label(library),
             "write_result": write_result,
             "source": summarize_item(updated_item),
         }

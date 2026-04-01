@@ -10,13 +10,22 @@ from mcp.server.fastmcp import FastMCP
 logger = logging.getLogger(__name__)
 
 SERVER_INSTRUCTIONS = """
-This server helps an agent work with a Zotero library as a research-source workspace.
+This server helps an agent work with Zotero libraries as a research-source workspace.
+It supports a personal library and multiple group libraries accessible with the configured API key.
 
 Preferred workflow:
-1. Use find_library_sources to discover likely relevant saved sources.
-2. Use inspect_saved_source only after you already have an item key.
-3. Use review_collection when the user asks about a collection by name.
-4. Use write tools only when the user clearly wants to save or update a source.
+1. If the user mentions a group or library by name, call list_libraries first to resolve it.
+2. Use find_library_sources to discover likely relevant saved sources in a specific library.
+3. Use search_across_libraries when the user wants to check multiple libraries at once.
+4. Use inspect_saved_source only after you already have an item key.
+5. Use review_collection when the user asks about a collection by name.
+6. Use write tools only when the user clearly wants to save or update a source.
+
+Multi-library tips:
+- All tools accept a "library" parameter: "personal", a group name, or a numeric group ID.
+- When the library parameter is omitted, the default configured library is used.
+- Group names are fuzzy-matched, so "Deception Research" will resolve automatically.
+- Use search_across_libraries to fan out a single query across several libraries.
 
 Notes:
 - This server is intentionally curated around research-library workflows rather than raw Zotero endpoints.
@@ -60,7 +69,7 @@ def main() -> None:
 
     try:
         client = build_client(config)
-        client.get_library_prefix()
+        client.get_user_id()  # Validates API key and resolves user ID eagerly
     except ZoteroApiError as exc:
         print(f"Zotero API error: {exc}", file=sys.stderr)
         sys.exit(1)

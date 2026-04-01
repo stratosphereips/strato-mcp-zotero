@@ -43,6 +43,7 @@ class ZoteroClient:
         )
         self._owns_http_client = http_client is None
         self._library_prefix: str | None = None
+        self._user_id: str | None = None
 
     def close(self) -> None:
         if self._owns_http_client:
@@ -64,6 +65,15 @@ class ZoteroClient:
                 "A library ID is required for non-user libraries."
             )
 
+        user_id = self.get_user_id()
+        self._library_prefix = f"/users/{user_id}"
+        return self._library_prefix
+
+    def get_user_id(self) -> str:
+        """Return the Zotero user ID for the authenticated API key."""
+        if self._user_id:
+            return self._user_id
+
         key_info, _ = self.request_json(
             "GET",
             f"/keys/{self.config.api_key}",
@@ -76,8 +86,14 @@ class ZoteroClient:
                 "Failed to resolve Zotero user ID from the API key metadata."
             )
 
-        self._library_prefix = f"/users/{user_id}"
-        return self._library_prefix
+        self._user_id = str(user_id)
+        return self._user_id
+
+    def list_groups(self) -> list[dict[str, Any]]:
+        """Return all groups the authenticated user has access to."""
+        user_id = self.get_user_id()
+        data, _ = self.request_json("GET", f"/users/{user_id}/groups", params={"format": "json"})
+        return data if isinstance(data, list) else []
 
     def request_json(
         self,
@@ -124,6 +140,30 @@ class ZoteroClient:
                 status_code=response.status_code,
                 response_body=response.text,
             ) from exc
+
+
+class ScopedClient:
+    """Wraps a ZoteroClient with a fixed library prefix for multi-library operations."""
+
+    def __init__(self, client: ZoteroClient, prefix: str) -> None:
+        self._client = client
+        self._prefix = prefix
+        self.config = client.config
+
+    def get_library_prefix(self) -> str:
+        return self._prefix
+
+    def request_json(self, *args: Any, **kwargs: Any) -> tuple[Any, httpx.Response]:
+        return self._client.request_json(*args, **kwargs)
+
+    def get_user_id(self) -> str:
+        return self._client.get_user_id()
+
+    def list_groups(self) -> list[dict[str, Any]]:
+        return self._client.list_groups()
+
+    def close(self) -> None:
+        pass  # The underlying client is managed externally
 
 
 def build_client(config: Config) -> ZoteroClient:
