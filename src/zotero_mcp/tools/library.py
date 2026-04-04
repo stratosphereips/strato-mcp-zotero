@@ -119,14 +119,15 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         - "find papers on deception in the 'Deception Research' group"
 
         Args:
-            query: Search text to run against the Zotero library.
+            query: Search text to run against the Zotero library. Use "*" to list all
+                   items without a text filter (useful when filtering by tag or collection only).
             library: Which library to search. Accepts "personal" (default), a group name
                      such as "Deception Research", or a numeric group ID. Leave empty to
                      use the default configured library.
             limit: Maximum number of matches to return. Strong default: 8.
             collection: Optional Zotero collection name or key to search inside.
             item_type: Optional Zotero item type such as 'book' or 'journalArticle'.
-            tag: Optional Zotero tag filter.
+            tag: Optional Zotero tag filter. Matches items with this exact tag.
             include_trashed: Include trashed items when true.
 
         Returns:
@@ -159,15 +160,27 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
             collection_key = resolved_collection.get("key") or resolved_collection.get("data", {}).get("key", "")
             collection_summary = summarize_collection(resolved_collection)
 
-        result = search_items(
-            client,
-            query=query.strip(),
-            collection_key=collection_key or None,
-            limit=limit,
-            item_type=item_type.strip() or None,
-            tag=tag.strip() or None,
-            include_trashed=include_trashed,
-        )
+        q = query.strip()
+        use_list = q == "*" or not q
+        if use_list:
+            result = list_items(
+                client,
+                collection_key=collection_key or None,
+                limit=limit,
+                item_type=item_type.strip() or None,
+                tag=tag.strip() or None,
+                include_trashed=include_trashed,
+            )
+        else:
+            result = search_items(
+                client,
+                query=q,
+                collection_key=collection_key or None,
+                limit=limit,
+                item_type=item_type.strip() or None,
+                tag=tag.strip() or None,
+                include_trashed=include_trashed,
+            )
         return {
             "query": query.strip(),
             "library": _library_label(library),
