@@ -140,7 +140,22 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         collection_key = ""
         collection_summary = None
         if collection.strip():
-            resolved_collection = find_collection_by_name_or_key(client, collection)
+            try:
+                resolved_collection = find_collection_by_name_or_key(client, collection)
+            except ZoteroApiError as exc:
+                if "No collection matched" in str(exc):
+                    base_client = get_client()
+                    groups = list_groups(base_client)
+                    lowered = collection.strip().lower()
+                    matched = [g for g in groups if lowered == g["name"].lower() or lowered in g["name"].lower()]
+                    if matched:
+                        names = ", ".join(f"'{g['name']}'" for g in matched[:3])
+                        raise ZoteroApiError(
+                            f"No collection named {collection!r} was found in the current library. "
+                            f"{names} appears to be a group library — use the 'library' parameter "
+                            f"(e.g. library={collection!r}) to search within it."
+                        ) from exc
+                raise
             collection_key = resolved_collection.get("key") or resolved_collection.get("data", {}).get("key", "")
             collection_summary = summarize_collection(resolved_collection)
 
