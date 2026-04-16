@@ -98,6 +98,46 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         }
 
     @mcp.tool(
+        name="get_library_item_count",
+        annotations=_tool_annotations(read_only=True),
+    )
+    def get_library_item_count(
+        library: str = "",
+        include_attachments_and_notes: bool = False,
+    ) -> dict[str, Any]:
+        """Return the total number of items saved in a Zotero library.
+
+        By default counts only parent (top-level) items — papers, books, webpages, etc. —
+        excluding PDFs, notes, and other child attachments. Set
+        include_attachments_and_notes=true to count everything.
+
+        Use this when the user asks things like:
+        - "how many items are in my library?"
+        - "how large is the Deception Research group library?"
+        - "what's the total item count in my personal Zotero?"
+
+        Args:
+            library: Which library to count. Accepts "personal" (default),
+                     a group name such as "Deception Research", or a numeric
+                     group ID. Leave empty to use the default configured library.
+            include_attachments_and_notes: When true, count all items including
+                     PDFs, notes, and other child attachments. Default: false.
+
+        Returns:
+            library: Display name of the queried library.
+            total_items: Number of items counted.
+            includes_attachments_and_notes: Whether the count includes child attachments and notes.
+        """
+        client = scoped_client_for(get_client(), library)
+        top_level_only = not include_attachments_and_notes
+        result = list_items(client, limit=1, top_level_only=top_level_only)
+        return {
+            "library": _library_label(library),
+            "total_items": result.get("total_results", result["count"]),
+            "includes_attachments_and_notes": include_attachments_and_notes,
+        }
+
+    @mcp.tool(
         name="find_library_sources",
         annotations=_tool_annotations(read_only=True),
     )
