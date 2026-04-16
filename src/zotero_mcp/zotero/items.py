@@ -99,6 +99,24 @@ def get_item(client: ZoteroClient, item_key: str) -> dict[str, Any]:
     return data
 
 
+def list_item_children(
+    client: ZoteroClient,
+    item_key: str,
+    *,
+    item_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return child items (attachments, notes) for a parent item."""
+    params: dict[str, Any] = {"format": "json"}
+    if item_type:
+        params["itemType"] = item_type
+    data, _ = client.request_json(
+        "GET",
+        f"{client.get_library_prefix()}/items/{item_key}/children",
+        params=params,
+    )
+    return data if isinstance(data, list) else []
+
+
 def create_item(
     client: ZoteroClient,
     item_data: dict[str, Any],
