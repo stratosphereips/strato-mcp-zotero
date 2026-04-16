@@ -21,6 +21,7 @@ DEFAULT_API_BASE_URL = "https://api.zotero.org"
 DEFAULT_API_VERSION = "3"
 DEFAULT_LIBRARY_TYPE = "user"
 DEFAULT_LIMIT = 25
+DEFAULT_ZOTERO_DATA_DIR = "~/Zotero"
 
 
 class ConfigurationError(Exception):
@@ -36,6 +37,7 @@ class Config:
     api_version: str = DEFAULT_API_VERSION
     default_limit: int = DEFAULT_LIMIT
     log_level: str = "WARNING"
+    zotero_data_dir: str = DEFAULT_ZOTERO_DATA_DIR
 
     def __post_init__(self) -> None:
         self.library_type = self.library_type.strip().lower()
@@ -63,6 +65,7 @@ class Config:
 
         self.api_base_url = self.api_base_url.rstrip("/")
         self.api_version = str(self.api_version).strip() or DEFAULT_API_VERSION
+        self.zotero_data_dir = self.zotero_data_dir.strip() or DEFAULT_ZOTERO_DATA_DIR
 
     @property
     def library_prefix_type(self) -> str:
@@ -89,4 +92,5 @@ def load_config() -> Config:
         api_version=os.getenv("ZOTERO_API_VERSION", DEFAULT_API_VERSION),
         default_limit=os.getenv("ZOTERO_DEFAULT_LIMIT", str(DEFAULT_LIMIT)),
         log_level=os.getenv("LOG_LEVEL", "WARNING"),
+        zotero_data_dir=os.getenv("ZOTERO_DATA_DIR", DEFAULT_ZOTERO_DATA_DIR),
     )

@@ -7,7 +7,7 @@ from typing import Any
 from zotero_mcp.zotero.client import ZoteroApiError
 from zotero_mcp.zotero.collections import list_collections
 from zotero_mcp.zotero.groups import list_groups, scoped_client_for
-from zotero_mcp.zotero.items import create_item, get_item, list_items, search_items, update_item
+from zotero_mcp.zotero.items import create_item, get_item, list_item_children, list_items, search_items, update_item
 from zotero_mcp.zotero.library import (
     build_source_changes,
     build_source_payload,
@@ -535,4 +535,82 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
             "library": _library_label(library),
             "write_result": write_result,
             "source": summarize_item(updated_item),
+        }
+
+    @mcp.tool(
+        name="get_item_pdf_path",
+        annotations=_tool_annotations(read_only=True),
+    )
+    def get_item_pdf_path(
+        item_key: str,
+        library: str = "",
+    ) -> dict[str, Any]:
+        """Return the local filesystem path(s) of PDF attachments for a Zotero item.
+
+        Looks up the child attachments of a parent item and resolves each PDF to its
+        path on disk. Works for both imported files (stored inside the Zotero data
+        directory) and linked files (stored wherever you placed them).
+
+        Requires the Zotero desktop app to be storing files locally. Configure
+        ZOTERO_DATA_DIR if your Zotero data directory is not the default ~/Zotero.
+
+        Use this when the user asks:
+        - "where is the PDF for item ABCD1234?"
+        - "give me the local path of this paper's PDF"
+        - "open the PDF for this item in my editor"
+
+        Args:
+            item_key: Zotero item key of the parent item.
+            library: Which library the item belongs to. Accepts "personal" (default),
+                     a group name, or a numeric group ID.
+
+        Returns:
+            item_key: The queried item key.
+            pdfs: List of resolved PDF attachments, each with attachment_key, filename,
+                  link_mode, and local_path (null if the path could not be determined).
+        """
+        import os
+
+        if not item_key.strip():
+            raise ValueError("item_key must not be empty")
+
+        client = scoped_client_for(get_client(), library)
+        data_dir = client.config.zotero_data_dir
+
+        children = list_item_children(client, item_key.strip(), item_type="attachment")
+        pdfs = []
+        for child in children:
+            data = child.get("data", {})
+            content_type = data.get("contentType", "")
+            if content_type != "application/pdf":
+                continue
+
+            key = child.get("key") or data.get("key", "")
+            filename = data.get("filename", "")
+            link_mode = data.get("linkMode", "")
+
+            if link_mode in ("imported_file", "imported_url"):
+                local_path = os.path.join(data_dir, "storage", key, filename) if key and filename else None
+            elif link_mode == "linked_file":
+                raw_path = data.get("path", "")
+                # Zotero stores relative linked paths with an "attachments:" prefix
+                if raw_path.startswith("attachments:"):
+                    base = os.path.join(data_dir, "attachments")
+                    local_path = os.path.join(base, raw_path[len("attachments:"):])
+                else:
+                    local_path = raw_path or None
+            else:
+                local_path = None
+
+            pdfs.append({
+                "attachment_key": key,
+                "filename": filename,
+                "link_mode": link_mode,
+                "local_path": local_path,
+            })
+
+        return {
+            "item_key": item_key.strip(),
+            "library": _library_label(library),
+            "pdfs": pdfs,
         }
