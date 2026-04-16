@@ -24,9 +24,14 @@ class ToolRecorder:
 
 
 class StubClient:
+    config = None
+
     def __init__(self):
         self.prefix = "/users/12345"
         self.calls: list[tuple[str, str]] = []
+
+    def get_user_id(self) -> str:
+        return "12345"
 
     def get_library_prefix(self) -> str:
         return self.prefix
