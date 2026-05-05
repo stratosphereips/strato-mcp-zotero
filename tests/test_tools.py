@@ -119,6 +119,23 @@ class TestLibraryTools:
         with pytest.raises(ValueError):
             self.recorder.call("find_library_sources", query="   ")
 
+    def test_find_library_sources_returns_total_results(self):
+        result = self.recorder.call("find_library_sources", query="transformers")
+        assert "total_results" in result
+        assert result["total_results"] == 1
+
+    def test_find_library_sources_default_offset_is_zero(self):
+        result = self.recorder.call("find_library_sources", query="transformers")
+        assert result["offset"] == 0
+
+    def test_find_library_sources_passes_offset_to_api(self):
+        result = self.recorder.call("find_library_sources", query="transformers", offset=100)
+        assert result["offset"] == 100
+
+    def test_find_library_sources_wildcard_passes_offset(self):
+        result = self.recorder.call("find_library_sources", query="*", offset=50)
+        assert result["offset"] == 50
+
     def test_inspect_saved_source_requires_key(self):
         with pytest.raises(ValueError):
             self.recorder.call("inspect_saved_source", item_key="")
