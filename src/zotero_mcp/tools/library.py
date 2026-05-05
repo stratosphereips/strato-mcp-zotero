@@ -145,6 +145,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         query: str,
         library: str = "",
         limit: int = 8,
+        offset: int = 0,
         collection: str = "",
         item_type: str = "",
         tag: str = "",
@@ -158,13 +159,19 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         - "show sources by Kahneman in my ML collection"
         - "find papers on deception in the 'Deception Research' group"
 
+        To retrieve all results when the total exceeds the limit, page through with offset:
+        call with offset=0, then offset=100, then offset=200, etc., until you have collected
+        all items (check total_results to know when to stop).
+
         Args:
             query: Search text to run against the Zotero library. Use "*" to list all
                    items without a text filter (useful when filtering by tag or collection only).
             library: Which library to search. Accepts "personal" (default), a group name
                      such as "Deception Research", or a numeric group ID. Leave empty to
                      use the default configured library.
-            limit: Maximum number of matches to return. Strong default: 8.
+            limit: Maximum number of matches to return per page. Max: 100. Default: 8.
+            offset: Number of results to skip before returning matches. Use with limit to
+                    paginate through large result sets. Default: 0.
             collection: Optional Zotero collection name or key to search inside.
             item_type: Optional Zotero item type such as 'book' or 'journalArticle'.
             tag: Optional Zotero tag filter. Matches items with this exact tag.
@@ -173,6 +180,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         Returns:
             A compact result with source summaries. Each summary contains:
             item_key, item_type, title, creators, year, publication_title, doi, url, tags.
+            Also includes total_results (total matches in library) for pagination.
         """
         if not query.strip():
             raise ValueError("query must not be empty")
@@ -207,6 +215,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
                 client,
                 collection_key=collection_key or None,
                 limit=limit,
+                start=offset,
                 item_type=item_type.strip() or None,
                 tag=tag.strip() or None,
                 include_trashed=include_trashed,
@@ -217,6 +226,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
                 query=q,
                 collection_key=collection_key or None,
                 limit=limit,
+                start=offset,
                 item_type=item_type.strip() or None,
                 tag=tag.strip() or None,
                 include_trashed=include_trashed,
@@ -225,7 +235,9 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
             "query": query.strip(),
             "library": _library_label(library),
             "collection": collection_summary,
+            "offset": offset,
             "count": result["count"],
+            "total_results": result.get("total_results", result["count"]),
             "sources": [summarize_item(item) for item in result["items"]],
         }
 
