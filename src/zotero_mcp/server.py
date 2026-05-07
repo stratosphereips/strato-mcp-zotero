@@ -19,7 +19,9 @@ Preferred workflow:
 3. Use search_across_libraries when the user wants to check multiple libraries at once.
 4. Use inspect_saved_source only after you already have an item key.
 5. Use review_collection when the user asks about a collection by name.
-6. Use write tools only when the user clearly wants to save or update a source.
+6. Use find_by_tag when the user wants all items with a specific tag and has no search query.
+7. Use find_library_sources with citation_key="smith2023" to look up a paper by its Better BibTeX citation key.
+8. Use write tools only when the user clearly wants to save or update a source.
 
 Multi-library tips:
 - All tools accept a "library" parameter: "personal", a group name, or a numeric group ID.

@@ -167,6 +167,155 @@ class TestLibraryTools:
         )
         assert result["source"]["item_key"] == "ABCD1234"
 
+class CitationKeyStubClient(StubClient):
+    """Returns items with/without citation keys in extra for testing citation_key search."""
+
+    def request_json(self, method, path, **kwargs):
+        if path.endswith("/items") and method == "GET":
+            params = kwargs.get("params", {})
+            if params.get("qmode") == "everything":
+                return [
+                    {
+                        "key": "CITE0001",
+                        "data": {
+                            "itemType": "journalArticle",
+                            "title": "Exact Match Paper",
+                            "creators": [],
+                            "date": "2023",
+                            "extra": "Citation Key: smith2023\nsome other info",
+                        },
+                    },
+                    {
+                        "key": "CITE0002",
+                        "data": {
+                            "itemType": "journalArticle",
+                            "title": "False Positive Paper",
+                            "creators": [],
+                            "date": "2023",
+                            "abstractNote": "This cites smith2023 in the abstract.",
+                            "extra": "",
+                        },
+                    },
+                ], _response_headers_n(2)
+        return super().request_json(method, path, **kwargs)
+
+
+class _response_headers_n:
+    def __init__(self, n: int):
+        self.headers = {"Total-Results": str(n), "Last-Modified-Version": "11"}
+
+
+class TagStubClient(StubClient):
+    """Returns tagged items for find_by_tag tests."""
+
+    def request_json(self, method, path, **kwargs):
+        if path.endswith("/items/top") and method == "GET":
+            return [
+                {
+                    "key": "TAG00001",
+                    "data": {
+                        "itemType": "journalArticle",
+                        "title": "Important Paper",
+                        "creators": [],
+                        "date": "2022",
+                        "tags": [{"tag": "to-read"}],
+                    },
+                }
+            ], _response_headers()
+        return super().request_json(method, path, **kwargs)
+
+
+class TestCitationKeySearch:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        from zotero_mcp.tools.library import register_library_tools
+
+        self.client = CitationKeyStubClient()
+        self.recorder = ToolRecorder()
+        register_library_tools(self.recorder, lambda: self.client)
+
+    def test_citation_key_finds_exact_match(self):
+        result = self.recorder.call("find_library_sources", query="*", citation_key="smith2023")
+        assert result["citation_key_matches"] == 1
+        assert result["sources"][0]["item_key"] == "CITE0001"
+
+    def test_citation_key_filters_out_false_positives(self):
+        result = self.recorder.call("find_library_sources", query="*", citation_key="smith2023")
+        assert result["count"] == 1
+        keys = [s["item_key"] for s in result["sources"]]
+        assert "CITE0002" not in keys
+
+    def test_citation_key_no_match_returns_empty(self):
+        result = self.recorder.call("find_library_sources", query="*", citation_key="nobody2099")
+        assert result["citation_key_matches"] == 0
+        assert result["sources"] == []
+
+    def test_citation_key_strips_bbt_prefix(self):
+        result = self.recorder.call(
+            "find_library_sources", query="*", citation_key="Citation Key: smith2023"
+        )
+        assert result["citation_key"] == "smith2023"
+        assert result["citation_key_matches"] == 1
+
+    def test_citation_key_is_case_sensitive(self):
+        result = self.recorder.call("find_library_sources", query="*", citation_key="Smith2023")
+        assert result["citation_key_matches"] == 0
+
+    def test_citation_key_with_text_query_raises(self):
+        with pytest.raises(ValueError):
+            self.recorder.call(
+                "find_library_sources", query="transformers", citation_key="smith2023"
+            )
+
+    def test_empty_citation_key_is_ignored(self):
+        result = self.recorder.call("find_library_sources", query="transformers", citation_key="")
+        assert "citation_key" not in result
+        assert "citation_key_matches" not in result
+
+    def test_citation_key_present_in_response(self):
+        result = self.recorder.call("find_library_sources", query="*", citation_key="smith2023")
+        assert result["citation_key"] == "smith2023"
+
+
+class TestFindByTag:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        from zotero_mcp.tools.library import register_library_tools
+
+        self.client = TagStubClient()
+        self.recorder = ToolRecorder()
+        register_library_tools(self.recorder, lambda: self.client)
+
+    def test_find_by_tag_returns_matching_items(self):
+        result = self.recorder.call("find_by_tag", tag="to-read")
+        assert result["tag"] == "to-read"
+        assert result["count"] == 1
+        assert result["sources"][0]["title"] == "Important Paper"
+
+    def test_find_by_tag_empty_tag_raises(self):
+        with pytest.raises(ValueError):
+            self.recorder.call("find_by_tag", tag="   ")
+
+    def test_find_by_tag_default_offset_is_zero(self):
+        result = self.recorder.call("find_by_tag", tag="to-read")
+        assert result["offset"] == 0
+
+    def test_find_by_tag_passes_offset(self):
+        result = self.recorder.call("find_by_tag", tag="to-read", offset=10)
+        assert result["offset"] == 10
+
+    def test_find_by_tag_has_total_results(self):
+        result = self.recorder.call("find_by_tag", tag="to-read")
+        assert "total_results" in result
+
+    def test_find_by_tag_tool_is_registered(self):
+        from zotero_mcp.tools.library import register_library_tools
+
+        recorder = ToolRecorder()
+        register_library_tools(recorder, lambda: self.client)
+        assert "find_by_tag" in recorder._tools
+
+
 def test_find_collection_by_name_recurses():
     from zotero_mcp.zotero.library import find_collection_by_name_or_key
 
