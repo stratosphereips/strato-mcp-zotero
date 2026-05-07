@@ -68,6 +68,17 @@ def _library_label(library_spec: str) -> str:
     return spec
 
 
+_CITATION_KEY_PREFIX = "Citation Key: "
+
+
+def _normalize_citation_key(value: str) -> str:
+    """Strip whitespace and the BBT 'Citation Key: ' prefix if present."""
+    key = value.strip()
+    if key.startswith(_CITATION_KEY_PREFIX):
+        key = key[len(_CITATION_KEY_PREFIX):].strip()
+    return key
+
+
 def register_library_tools(mcp: Any, get_client: Any) -> None:
     """Register workflow-first Zotero tools."""
 
@@ -149,6 +160,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         collection: str = "",
         item_type: str = "",
         tag: str = "",
+        citation_key: str = "",
         include_trashed: bool = False,
     ) -> dict[str, Any]:
         """Find the most relevant saved sources for a topic, question, title fragment, DOI, or author.
@@ -158,6 +170,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         - "do I already have this DOI in Zotero?"
         - "show sources by Kahneman in my ML collection"
         - "find papers on deception in the 'Deception Research' group"
+        - "find the paper with BibTeX key smith2023" → use citation_key="smith2023"
 
         To retrieve all results when the total exceeds the limit, page through with offset:
         call with offset=0, then offset=100, then offset=200, etc., until you have collected
@@ -166,6 +179,7 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         Args:
             query: Search text to run against the Zotero library. Use "*" to list all
                    items without a text filter (useful when filtering by tag or collection only).
+                   Ignored (and overridden) when citation_key is provided.
             library: Which library to search. Accepts "personal" (default), a group name
                      such as "Deception Research", or a numeric group ID. Leave empty to
                      use the default configured library.
@@ -175,15 +189,26 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
             collection: Optional Zotero collection name or key to search inside.
             item_type: Optional Zotero item type such as 'book' or 'journalArticle'.
             tag: Optional Zotero tag filter. Matches items with this exact tag.
+            citation_key: Optional Better BibTeX citation key to look up (e.g. "smith2023").
+                          Searches the extra field where BBT stores "Citation Key: <key>".
+                          Cannot be combined with a non-wildcard query. Requires Better BibTeX.
             include_trashed: Include trashed items when true.
 
         Returns:
             A compact result with source summaries. Each summary contains:
             item_key, item_type, title, creators, year, publication_title, doi, url, tags.
             Also includes total_results (total matches in library) for pagination.
+            When citation_key is used, also includes citation_key_matches (post-filter count).
         """
         if not query.strip():
             raise ValueError("query must not be empty")
+
+        normalized_key = _normalize_citation_key(citation_key)
+        if normalized_key and query.strip() not in ("", "*"):
+            raise ValueError(
+                "citation_key cannot be combined with a text query. "
+                "Leave query empty or use query=\"*\" when searching by citation key."
+            )
 
         client = scoped_client_for(get_client(), library)
         collection_key = ""
@@ -210,7 +235,33 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
 
         q = query.strip()
         use_list = q == "*" or not q
-        if use_list:
+        if normalized_key:
+            result = search_items(
+                client,
+                query=normalized_key,
+                qmode="everything",
+                collection_key=collection_key or None,
+                limit=limit,
+                start=offset,
+                item_type=item_type.strip() or None,
+                tag=tag.strip() or None,
+                include_trashed=include_trashed,
+            )
+            needle = f"Citation Key: {normalized_key}"
+            filtered = [i for i in result["items"] if needle in i.get("data", {}).get("extra", "")]
+            response: dict[str, Any] = {
+                "query": normalized_key,
+                "library": _library_label(library),
+                "collection": collection_summary,
+                "offset": offset,
+                "count": len(filtered),
+                "total_results": result.get("total_results", result["count"]),
+                "citation_key": normalized_key,
+                "citation_key_matches": len(filtered),
+                "sources": [summarize_item(item) for item in filtered],
+            }
+            return response
+        elif use_list:
             result = list_items(
                 client,
                 collection_key=collection_key or None,
@@ -547,6 +598,71 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
             "library": _library_label(library),
             "write_result": write_result,
             "source": summarize_item(updated_item),
+        }
+
+    @mcp.tool(
+        name="find_by_tag",
+        annotations=_tool_annotations(read_only=True),
+    )
+    def find_by_tag(
+        tag: str,
+        library: str = "",
+        limit: int = 8,
+        offset: int = 0,
+        item_type: str = "",
+        include_trashed: bool = False,
+    ) -> dict[str, Any]:
+        """Browse all top-level sources that carry a specific Zotero tag.
+
+        Use this when the user wants every item with a given tag and has no search query, e.g.:
+        - "show all papers tagged 'to-read'"
+        - "list everything I tagged as 'important' in the Deception Research library"
+        - "what papers do I have tagged 'ml-foundation'?"
+
+        Tag matching is exact and case-sensitive. Use the tag exactly as it appears in Zotero.
+        Only top-level items (papers, books, etc.) are returned — PDF attachments and notes
+        that carry the tag are excluded.
+
+        To page through large tag sets use offset: call with offset=0, offset=100, etc.,
+        checking total_results to know when to stop.
+
+        Args:
+            tag: Exact Zotero tag to match. Case-sensitive.
+            library: Which library to browse. Accepts "personal" (default), a group name,
+                     or a numeric group ID.
+            limit: Maximum items to return per page. Max: 100. Default: 8.
+            offset: Number of items to skip for pagination. Default: 0.
+            item_type: Optional Zotero item type filter, e.g. 'journalArticle'.
+            include_trashed: Include trashed items when true.
+
+        Returns:
+            tag: The queried tag.
+            library: Display name of the queried library.
+            offset: The current page offset.
+            count: Number of items returned in this page.
+            total_results: Total items with this tag in the library.
+            sources: Compact source summaries (item_key, title, creators, year, doi, tags, …).
+        """
+        if not tag.strip():
+            raise ValueError("tag must not be empty")
+
+        client = scoped_client_for(get_client(), library)
+        result = list_items(
+            client,
+            tag=tag.strip(),
+            top_level_only=True,
+            limit=limit,
+            start=offset,
+            item_type=item_type.strip() or None,
+            include_trashed=include_trashed,
+        )
+        return {
+            "tag": tag.strip(),
+            "library": _library_label(library),
+            "offset": offset,
+            "count": result["count"],
+            "total_results": result.get("total_results", result["count"]),
+            "sources": [summarize_item(item) for item in result["items"]],
         }
 
     @mcp.tool(
