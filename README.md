@@ -1,51 +1,71 @@
 # Stratosphere MCP Zotero
 
-A Python MCP server that connects your Zotero library to AI assistants. Rather than exposing raw API endpoints, it offers a small set of tools shaped around how researchers actually work: finding sources, browsing collections, inspecting items, and saving or updating metadata.
+Connect your Zotero library to an AI assistant. Ask questions, find papers, save sources, fix metadata — in plain language.
 
-Works with Claude, Gemini CLI, OpenAI Codex, and any MCP-compatible client.
+Works with Claude, Gemini CLI, OpenAI Codex, and any other MCP client.
 
-## MCP Agent Stories
+## What you can ask
 
-This server is built around how researchers use Zotero, not around the API surface. It supports your personal library and any group libraries your API key can access — all from a single MCP instance.
+You ask in plain language. The assistant picks the right tool. You stay in your normal chat.
 
-### Discovering sources
+### Find a paper
 
-**"Find papers about deception in the 'Deception Research' group"**
-The agent calls `list_libraries` to resolve the group name, then `find_library_sources` with `library="Deception Research"` to return matching items with compact summaries.
+> "Find papers about deception in the Deception Research group."
+> "Do I have anything by Kahneman in my ML collection?"
+> "Do I already have this DOI?"
+> "Find the paper with BibTeX key smith2023."
 
-**"Do I have any paper about bananas in 'Exotic Research' or my personal library?"**
-The agent calls `search_across_libraries` with `libraries="Exotic Research, personal"` and gets results from both in a single response.
+The assistant searches your library and returns a short list with title, authors, year, and DOI.
 
-**"Do I already have this DOI saved?"**
-`find_library_sources` accepts a DOI as the query and checks if it exists anywhere in the target library.
+### Search several libraries at once
 
-### Browsing and inspecting
+> "Do I have anything about bananas in Exotic Research or my personal library?"
 
-**"What's in my Reading Queue collection?"**
-`review_collection` resolves the collection by name, summarizes it, and lists its top items. Pass `library="Group Name"` to look inside a group library instead.
+You get one answer with results from both.
 
-**"Show me the full metadata for item ABCD1234"**
-`inspect_saved_source` returns normalized metadata for a known item key. Add `include_raw=true` to see the full Zotero API payload.
+### Browse by tag or collection
 
-### Saving and updating
+> "Show me everything tagged 'to-read'."
+> "What's in my Reading Queue collection?"
+> "List all papers tagged 'important' in the Deception Research group."
 
-**"Save this paper to my library under the 'LLM' collection"**
-`save_source_to_library` takes a title, creators, tags, and collection assignments and adds the item, returning a summary of what was saved. Specify `library` to save into a group instead.
+The assistant lists the items. Tags must match exactly.
 
-**"Fix the DOI on item ABCD1234 and add the tag 'to-read'"**
-`update_saved_source` patches only the fields you provide, leaving everything else untouched.
+### Look up one item
+
+> "Show me the full details for item ABCD1234."
+> "Where is the PDF for this paper on my disk?"
+
+You get normalised metadata, or a local PDF path you can open in your editor.
+
+### Count your library
+
+> "How many papers do I have in my personal Zotero?"
+> "How big is the Deception Research group library?"
+
+You get a number. By default it counts top-level items only, not PDFs and notes.
+
+### Save and update
+
+> "Save this paper to my Reading Queue collection."
+> "Fix the DOI on item ABCD1234 and add the tag 'to-read'."
+
+The assistant adds or updates the item and shows you what changed. Only the fields you mention are touched — nothing else is overwritten.
 
 ---
 
-Use `;` to separate creators and `,` for tags in save/update calls:
+### A few things to know
 
-```
-creators="Ada Lovelace; Grace Hopper"
-creators="author: Turing, Alan; editor: Knuth, Donald"
-tags="reading-queue, llm, bibliography"
-```
-
-Collection and library arguments accept either a name or a key. If a name is ambiguous, the tool returns candidates so the agent can resolve it.
+- **Group libraries:** All tools accept a `library` argument — `"personal"`, a group name like `"Deception Research"`, or a numeric group ID. Group names are fuzzy-matched.
+- **Collections by name:** Pass a collection name and the tool resolves it. If two collections have similar names, the tool asks you to pick.
+- **Save/update format:** Separate authors with `;` and tags with `,`.
+  ```
+  creators="Ada Lovelace; Grace Hopper"
+  creators="author: Turing, Alan; editor: Knuth, Donald"
+  tags="reading-queue, llm, bibliography"
+  ```
+- **Pagination:** Tools that list items (`find_library_sources`, `find_by_tag`) cap at 100 results per call. Use the `offset` argument to page through larger sets — `total_results` in the response tells you when to stop.
+- **BibTeX keys:** Looking up a paper by its citation key requires the [Better BibTeX](https://retorque.re/zotero-better-bibtex/) Zotero plugin, which writes the key into the item's `extra` field.
 
 ## Prerequisites
 
