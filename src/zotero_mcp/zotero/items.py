@@ -43,7 +43,7 @@ def list_items(
     sort: str = "dateModified",
     direction: str = "desc",
     item_type: str | None = None,
-    tag: str | None = None,
+    tag: str | list[str] | None = None,
     include_trashed: bool = False,
 ) -> dict[str, Any]:
     """List items in the configured Zotero library."""
@@ -72,7 +72,7 @@ def search_items(
     sort: str = "dateModified",
     direction: str = "desc",
     item_type: str | None = None,
-    tag: str | None = None,
+    tag: str | list[str] | None = None,
     qmode: str = "titleCreatorYear",
     include_trashed: bool = False,
 ) -> dict[str, Any]:
@@ -219,7 +219,7 @@ def _item_list_params(
     sort: str,
     direction: str,
     item_type: str | None,
-    tag: str | None,
+    tag: str | list[str] | None,
     include_trashed: bool,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {

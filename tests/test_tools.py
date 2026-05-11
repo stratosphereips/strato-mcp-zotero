@@ -206,10 +206,15 @@ class _response_headers_n:
 
 
 class TagStubClient(StubClient):
-    """Returns tagged items for find_by_tag tests."""
+    """Returns tagged items for find_by_tag tests; captures the last params dict."""
+
+    def __init__(self):
+        super().__init__()
+        self.last_params: dict | None = None
 
     def request_json(self, method, path, **kwargs):
         if path.endswith("/items/top") and method == "GET":
+            self.last_params = kwargs.get("params")
             return [
                 {
                     "key": "TAG00001",
@@ -308,12 +313,150 @@ class TestFindByTag:
         result = self.recorder.call("find_by_tag", tag="to-read")
         assert "total_results" in result
 
+    def test_find_by_tag_sends_single_tag_as_list(self):
+        self.recorder.call("find_by_tag", tag="to-read")
+        assert self.client.last_params["tag"] == ["to-read"]
+
+    def test_find_by_tag_includes_extra_tags_anded(self):
+        self.recorder.call(
+            "find_by_tag", tag="stage/1", tags_include="reviewed, ready"
+        )
+        assert self.client.last_params["tag"] == ["stage/1", "reviewed", "ready"]
+
+    def test_find_by_tag_excludes_prefix_dash(self):
+        self.recorder.call(
+            "find_by_tag",
+            tag="stage/1-criterion-a",
+            tags_exclude="excl/a-duplicate, excl/a-out-of-scope",
+        )
+        assert self.client.last_params["tag"] == [
+            "stage/1-criterion-a",
+            "-excl/a-duplicate",
+            "-excl/a-out-of-scope",
+        ]
+
+    def test_find_by_tag_include_and_exclude_combined(self):
+        self.recorder.call(
+            "find_by_tag",
+            tag="A",
+            tags_include="B",
+            tags_exclude="C",
+        )
+        assert self.client.last_params["tag"] == ["A", "B", "-C"]
+
+    def test_find_by_tag_dedupes_primary_from_include(self):
+        self.recorder.call("find_by_tag", tag="A", tags_include="A, B")
+        assert self.client.last_params["tag"] == ["A", "B"]
+
+    def test_find_by_tag_echoes_filters_in_response(self):
+        result = self.recorder.call(
+            "find_by_tag", tag="A", tags_include="B", tags_exclude="C"
+        )
+        assert result["tags_include"] == ["B"]
+        assert result["tags_exclude"] == ["C"]
+
+    def test_find_by_tag_omits_filter_echo_when_empty(self):
+        result = self.recorder.call("find_by_tag", tag="A")
+        assert "tags_include" not in result
+        assert "tags_exclude" not in result
+
     def test_find_by_tag_tool_is_registered(self):
         from zotero_mcp.tools.library import register_library_tools
 
         recorder = ToolRecorder()
         register_library_tools(recorder, lambda: self.client)
         assert "find_by_tag" in recorder._tools
+
+
+class TagDeltaStubClient(StubClient):
+    """Serves an item with configurable tags + version, captures POST bodies."""
+
+    def __init__(self, current_tags=None, version=10):
+        super().__init__()
+        self.current_tags = current_tags if current_tags is not None else [{"tag": "history"}]
+        self.version = version
+        self.last_post_body = None
+
+    def request_json(self, method, path, **kwargs):
+        if path.endswith("/items/ABCD1234") and method == "GET":
+            return {
+                "key": "ABCD1234",
+                "version": self.version,
+                "data": {
+                    "itemType": "book",
+                    "title": "Test Book",
+                    "creators": [],
+                    "tags": list(self.current_tags),
+                },
+            }, None
+        if path.endswith("/items") and method == "POST":
+            self.last_post_body = kwargs.get("json_body")
+            return {"successful": {"0": "ABCD1234"}}, _response_headers()
+        return super().request_json(method, path, **kwargs)
+
+
+class TestUpdateSavedSourceTagDelta:
+    def _setup(self, current_tags=None, version=10):
+        from zotero_mcp.tools.library import register_library_tools
+
+        client = TagDeltaStubClient(current_tags=current_tags, version=version)
+        recorder = ToolRecorder()
+        register_library_tools(recorder, lambda: client)
+        return client, recorder
+
+    def test_update_saved_source_tags_add_appends_to_existing(self):
+        client, recorder = self._setup(current_tags=[{"tag": "a"}], version=42)
+        recorder.call("update_saved_source", item_key="ABCD1234", tags_to_add="b")
+        assert client.last_post_body[0]["tags"] == [{"tag": "a"}, {"tag": "b"}]
+        assert client.last_post_body[0]["version"] == 42
+
+    def test_update_saved_source_tags_remove_drops_existing(self):
+        client, recorder = self._setup(current_tags=[{"tag": "a"}, {"tag": "b"}])
+        recorder.call("update_saved_source", item_key="ABCD1234", tags_to_remove="a")
+        assert client.last_post_body[0]["tags"] == [{"tag": "b"}]
+
+    def test_update_saved_source_tags_add_and_remove_combined(self):
+        client, recorder = self._setup(current_tags=[{"tag": "a"}, {"tag": "b"}])
+        recorder.call(
+            "update_saved_source",
+            item_key="ABCD1234",
+            tags_to_add="c",
+            tags_to_remove="a",
+        )
+        assert client.last_post_body[0]["tags"] == [{"tag": "b"}, {"tag": "c"}]
+
+    def test_update_saved_source_rejects_replace_with_delta(self):
+        _, recorder = self._setup()
+        with pytest.raises(ValueError):
+            recorder.call(
+                "update_saved_source",
+                item_key="ABCD1234",
+                tags="x",
+                tags_to_add="y",
+            )
+
+    def test_update_saved_source_tags_add_idempotent_no_change(self):
+        client, recorder = self._setup(current_tags=[{"tag": "a"}])
+        with pytest.raises(ValueError):
+            recorder.call("update_saved_source", item_key="ABCD1234", tags_to_add="a")
+        assert client.last_post_body is None
+
+    def test_update_saved_source_tags_remove_idempotent_no_change(self):
+        client, recorder = self._setup(current_tags=[{"tag": "a"}])
+        with pytest.raises(ValueError):
+            recorder.call("update_saved_source", item_key="ABCD1234", tags_to_remove="z")
+        assert client.last_post_body is None
+
+    def test_update_saved_source_tags_delta_preserves_automatic_type(self):
+        client, recorder = self._setup(
+            current_tags=[{"tag": "auto", "type": 1}, {"tag": "manual"}],
+        )
+        recorder.call("update_saved_source", item_key="ABCD1234", tags_to_add="extra")
+        assert client.last_post_body[0]["tags"] == [
+            {"tag": "auto", "type": 1},
+            {"tag": "manual"},
+            {"tag": "extra"},
+        ]
 
 
 def test_find_collection_by_name_recurses():

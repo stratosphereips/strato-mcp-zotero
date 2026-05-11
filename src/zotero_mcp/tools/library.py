@@ -4,17 +4,20 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from zotero_mcp.zotero.client import ZoteroApiError
+from zotero_mcp.zotero.client import ZoteroApiError, extract_version
 from zotero_mcp.zotero.collections import list_collections
 from zotero_mcp.zotero.groups import list_groups, scoped_client_for
 from zotero_mcp.zotero.items import create_item, get_item, list_item_children, list_items, search_items, update_item
 from zotero_mcp.zotero.library import (
     build_source_changes,
     build_source_payload,
+    compute_tag_delta,
     find_collection_by_name_or_key,
     resolve_collection_inputs,
+    split_csv,
     summarize_collection,
     summarize_item,
+    tag_lists_equal,
 )
 
 def _tool_annotations(*, read_only: bool, destructive: bool = False):
@@ -535,6 +538,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         abstract_note: str = "",
         publication_title: str = "",
         tags: str = "",
+        tags_to_add: str = "",
+        tags_to_remove: str = "",
         collections: str = "",
         extra: str = "",
         extra_fields_json: str = "",
@@ -550,6 +555,15 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         Only provided fields are changed. Empty strings mean "leave as is".
         To update uncommon Zotero-specific fields, pass them in extra_fields_json.
 
+        Tag editing modes (mutually exclusive):
+        - `tags`: replace the entire tag list with this CSV. Empty string leaves tags unchanged.
+        - `tags_to_add` / `tags_to_remove`: apply a delta. The server fetches the item once,
+          applies the delta (case-sensitive, idempotent on both sides), and writes back.
+          Use this to append or strip a tag without a separate read call.
+          If a name appears in both, add wins.
+
+        Passing `tags` together with `tags_to_add` or `tags_to_remove` is an error.
+
         Args:
             library: Which library the item belongs to. Accepts "personal" (default),
                      a group name, or a numeric group ID.
@@ -560,12 +574,28 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         if not item_key.strip():
             raise ValueError("item_key must not be empty")
 
+        add_list = split_csv(tags_to_add)
+        remove_list = split_csv(tags_to_remove)
+        has_delta = bool(add_list or remove_list)
+        has_replace = bool(tags.strip())
+
+        if has_delta and has_replace:
+            raise ValueError(
+                "Use either `tags` (replace) or `tags_to_add`/`tags_to_remove` (delta), "
+                "not both."
+            )
+
         client = scoped_client_for(get_client(), library)
         extra_fields = _parse_json_object(
             extra_fields_json,
             argument_name="extra_fields_json",
         )
         collection_keys = resolve_collection_inputs(client, collections)
+
+        fetched_item = None
+        if has_delta:
+            fetched_item = get_item(client, item_key.strip())
+
         changes = build_source_changes(
             title=title,
             creators=creators,
@@ -580,17 +610,29 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
             extra_fields=extra_fields,
         )
 
+        if has_delta:
+            current_tags = (fetched_item.get("data") or {}).get("tags", [])
+            merged = compute_tag_delta(
+                current_tags, to_add=add_list, to_remove=remove_list
+            )
+            if not tag_lists_equal(current_tags, merged):
+                changes["tags"] = merged
+
         if not changes:
             raise ValueError(
                 "Provide at least one field to change, such as title, year, doi, tags, "
                 "collections, or extra_fields_json."
             )
 
+        effective_version = current_version or (
+            extract_version(fetched_item) if fetched_item is not None else None
+        )
+
         write_result = update_item(
             client,
             item_key=item_key.strip(),
             item_data=changes,
-            current_version=current_version or None,
+            current_version=effective_version,
         )
         updated_item = get_item(client, item_key.strip())
         return {
@@ -610,6 +652,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         limit: int = 8,
         offset: int = 0,
         item_type: str = "",
+        tags_include: str = "",
+        tags_exclude: str = "",
         include_trashed: bool = False,
     ) -> dict[str, Any]:
         """Browse all top-level sources that carry a specific Zotero tag.
@@ -619,7 +663,12 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         - "list everything I tagged as 'important' in the Deception Research library"
         - "what papers do I have tagged 'ml-foundation'?"
 
-        Tag matching is exact and case-sensitive. Use the tag exactly as it appears in Zotero.
+        For Zotero saved-search style multi-tag queries (match all of A and B, exclude C and D),
+        use `tags_include` and `tags_exclude` alongside the primary `tag`:
+        - tag="stage/1-criterion-a", tags_exclude="excl/a-duplicate, excl/a-out-of-scope"
+        - tag="ml-foundation", tags_include="reviewed", tags_exclude="archive"
+
+        Tag matching is exact and case-sensitive. Use tags exactly as they appear in Zotero.
         Only top-level items (papers, books, etc.) are returned — PDF attachments and notes
         that carry the tag are excluded.
 
@@ -627,43 +676,61 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         checking total_results to know when to stop.
 
         Args:
-            tag: Exact Zotero tag to match. Case-sensitive.
+            tag: Exact Zotero tag to match (required, the primary tag). Case-sensitive.
             library: Which library to browse. Accepts "personal" (default), a group name,
                      or a numeric group ID.
             limit: Maximum items to return per page. Max: 100. Default: 8.
             offset: Number of items to skip for pagination. Default: 0.
             item_type: Optional Zotero item type filter, e.g. 'journalArticle'.
+            tags_include: Optional CSV of additional tags to AND with `tag`. Items must
+                          carry all of them (plus `tag`) to match.
+            tags_exclude: Optional CSV of tags to exclude. Items carrying any of these
+                          are filtered out.
             include_trashed: Include trashed items when true.
 
         Returns:
-            tag: The queried tag.
+            tag: The primary queried tag.
+            tags_include / tags_exclude: Echoes of the filter inputs (omitted when empty).
             library: Display name of the queried library.
             offset: The current page offset.
             count: Number of items returned in this page.
-            total_results: Total items with this tag in the library.
+            total_results: Total items matching the full tag filter in the library.
             sources: Compact source summaries (item_key, title, creators, year, doi, tags, …).
         """
-        if not tag.strip():
+        primary = tag.strip()
+        if not primary:
             raise ValueError("tag must not be empty")
+
+        include_list = split_csv(tags_include)
+        exclude_list = split_csv(tags_exclude)
+
+        tag_filter: list[str] = [primary]
+        tag_filter.extend(t for t in include_list if t != primary)
+        tag_filter.extend(f"-{t}" for t in exclude_list)
 
         client = scoped_client_for(get_client(), library)
         result = list_items(
             client,
-            tag=tag.strip(),
+            tag=tag_filter,
             top_level_only=True,
             limit=limit,
             start=offset,
             item_type=item_type.strip() or None,
             include_trashed=include_trashed,
         )
-        return {
-            "tag": tag.strip(),
+        response: dict[str, Any] = {
+            "tag": primary,
             "library": _library_label(library),
             "offset": offset,
             "count": result["count"],
             "total_results": result.get("total_results", result["count"]),
             "sources": [summarize_item(item) for item in result["items"]],
         }
+        if include_list:
+            response["tags_include"] = include_list
+        if exclude_list:
+            response["tags_exclude"] = exclude_list
+        return response
 
     @mcp.tool(
         name="get_item_pdf_path",

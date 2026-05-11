@@ -165,7 +165,7 @@ def build_source_payload(
     if publication_title.strip():
         payload["publicationTitle"] = publication_title.strip()
     if tags.strip():
-        payload["tags"] = [{"tag": token} for token in _split_csv(tags)]
+        payload["tags"] = [{"tag": token} for token in split_csv(tags)]
     if collection_keys:
         payload["collections"] = collection_keys
     if extra.strip():
@@ -209,7 +209,7 @@ def build_source_changes(
     if publication_title.strip():
         changes["publicationTitle"] = publication_title.strip()
     if tags.strip():
-        changes["tags"] = [{"tag": token} for token in _split_csv(tags)]
+        changes["tags"] = [{"tag": token} for token in split_csv(tags)]
     if collection_keys:
         changes["collections"] = collection_keys
     if extra.strip():
@@ -220,8 +220,41 @@ def build_source_changes(
     return changes
 
 
-def _split_csv(value: str) -> list[str]:
+def split_csv(value: str) -> list[str]:
     return [token.strip() for token in value.split(",") if token.strip()]
+
+
+def compute_tag_delta(
+    current_tags: list[dict[str, Any]],
+    *,
+    to_add: list[str],
+    to_remove: list[str],
+) -> list[dict[str, Any]]:
+    """Apply add/remove deltas to a Zotero tag list, preserving extra fields like type:1."""
+    add_set = {t for t in to_add if t}
+    remove_set = {t for t in to_remove if t and t not in add_set}
+
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for entry in current_tags:
+        name = entry.get("tag", "")
+        if not name or name in remove_set:
+            continue
+        result.append(dict(entry))
+        seen.add(name)
+
+    for name in to_add:
+        if name and name not in seen:
+            result.append({"tag": name})
+            seen.add(name)
+
+    return result
+
+
+def tag_lists_equal(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> bool:
+    return [(e.get("tag"), e.get("type")) for e in a] == [
+        (e.get("tag"), e.get("type")) for e in b
+    ]
 
 
 def _parse_creators(creators: str) -> list[dict[str, str]]:
