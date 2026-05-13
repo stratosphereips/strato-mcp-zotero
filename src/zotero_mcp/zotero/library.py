@@ -321,12 +321,15 @@ def _first_present(data: dict[str, Any], fields: list[str]) -> str:
     return ""
 
 
-def _format_creator(creator: dict[str, Any]) -> str:
+def _format_creator(creator: dict[str, Any]) -> dict[str, str]:
+    role = creator.get("creatorType", "")
     if creator.get("name"):
-        return creator["name"]
-    first = creator.get("firstName", "").strip()
-    last = creator.get("lastName", "").strip()
-    return " ".join(part for part in [first, last] if part)
+        name = creator["name"]
+    else:
+        first = creator.get("firstName", "").strip()
+        last = creator.get("lastName", "").strip()
+        name = " ".join(part for part in [first, last] if part)
+    return {"role": role, "name": name}
 
 
 def _year_from_date(date_value: str) -> str:

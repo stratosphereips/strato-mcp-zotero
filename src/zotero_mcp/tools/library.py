@@ -200,6 +200,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
         Returns:
             A compact result with source summaries. Each summary contains:
             item_key, item_type, title, creators, year, publication_title, doi, url, tags.
+            `creators` is a list of `{"role": str, "name": str}` where role is the Zotero
+            creatorType (author, editor, translator, …) or "" when missing.
             Also includes total_results (total matches in library) for pagination.
             When citation_key is used, also includes citation_key_matches (post-filter count).
         """
@@ -323,6 +325,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
 
         Returns:
             results: A dict keyed by library name, each containing count and sources.
+                     Each source's `creators` is a list of `{"role": str, "name": str}`
+                     (role is the Zotero creatorType: author, editor, translator, …; "" when missing).
             total_count: Total number of matches across all libraries.
         """
         if not query.strip():
@@ -383,7 +387,9 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
             include_raw: When true, also include the full raw Zotero item object.
 
         Returns:
-            A normalized source summary. If include_raw=true, adds raw_item with the original API payload.
+            A normalized source summary. `creators` is a list of `{"role": str, "name": str}`
+            where role is the Zotero creatorType (author, editor, translator, …) or "" when missing.
+            If include_raw=true, adds raw_item with the original API payload.
         """
         if not item_key.strip():
             raise ValueError("item_key must not be empty")
@@ -416,6 +422,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
 
         Returns:
             Collection metadata plus compact source summaries for the requested collection.
+            Each source's `creators` is a list of `{"role": str, "name": str}` (role is the
+            Zotero creatorType: author, editor, translator, …; "" when missing).
         """
         if not collection.strip():
             raise ValueError("collection must not be empty")
@@ -480,6 +488,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
 
         Returns:
             A confirmation plus a compact summary of the newly saved source when Zotero returns the new item key.
+            The summary's `creators` is a list of `{"role": str, "name": str}` (role is the
+            Zotero creatorType: author, editor, translator, …; "" when missing).
         """
         if not item_type.strip():
             raise ValueError("item_type must not be empty")
@@ -570,6 +580,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
 
         Returns:
             A confirmation plus an updated compact summary of the source.
+            The summary's `creators` is a list of `{"role": str, "name": str}` (role is the
+            Zotero creatorType: author, editor, translator, …; "" when missing).
         """
         if not item_key.strip():
             raise ValueError("item_key must not be empty")
@@ -696,6 +708,8 @@ def register_library_tools(mcp: Any, get_client: Any) -> None:
             count: Number of items returned in this page.
             total_results: Total items matching the full tag filter in the library.
             sources: Compact source summaries (item_key, title, creators, year, doi, tags, …).
+                     Each `creators` entry is `{"role": str, "name": str}` (role is the Zotero
+                     creatorType: author, editor, translator, …; "" when missing).
         """
         primary = tag.strip()
         if not primary:

@@ -71,7 +71,9 @@ class StubClient:
                 "data": {
                     "itemType": "book",
                     "title": "Test Book",
-                    "creators": [{"firstName": "Ada", "lastName": "Lovelace"}],
+                    "creators": [
+                        {"creatorType": "author", "firstName": "Ada", "lastName": "Lovelace"}
+                    ],
                     "date": "1843",
                     "DOI": "10.1000/test",
                     "tags": [{"tag": "history"}],
@@ -86,7 +88,9 @@ class StubClient:
                     "data": {
                         "itemType": "journalArticle",
                         "title": "Transformer Scaling Laws",
-                        "creators": [{"firstName": "Grace", "lastName": "Hopper"}],
+                        "creators": [
+                            {"creatorType": "author", "firstName": "Grace", "lastName": "Hopper"}
+                        ],
                         "date": "2024",
                         "DOI": "10.1000/example",
                     },
@@ -465,6 +469,106 @@ def test_find_collection_by_name_recurses():
     client = StubClient()
     result = find_collection_by_name_or_key(client, "Week 1")
     assert result["key"] == "SUB12345"
+
+
+def test_summarize_item_returns_creator_role_and_name():
+    from zotero_mcp.zotero.library import summarize_item
+
+    item = {
+        "key": "X",
+        "data": {
+            "itemType": "book",
+            "title": "T",
+            "creators": [
+                {"creatorType": "editor", "firstName": "Quanyan", "lastName": "Zhu"}
+            ],
+        },
+    }
+    assert summarize_item(item)["creators"] == [
+        {"role": "editor", "name": "Quanyan Zhu"}
+    ]
+
+
+def test_summarize_item_creator_missing_type_returns_empty_role():
+    from zotero_mcp.zotero.library import summarize_item
+
+    item = {
+        "key": "X",
+        "data": {
+            "itemType": "book",
+            "title": "T",
+            "creators": [{"firstName": "Ada", "lastName": "Lovelace"}],
+        },
+    }
+    assert summarize_item(item)["creators"] == [
+        {"role": "", "name": "Ada Lovelace"}
+    ]
+
+
+def test_summarize_item_creator_with_single_name_field():
+    from zotero_mcp.zotero.library import summarize_item
+
+    item = {
+        "key": "X",
+        "data": {
+            "itemType": "report",
+            "title": "T",
+            "creators": [{"creatorType": "author", "name": "World Health Organization"}],
+        },
+    }
+    assert summarize_item(item)["creators"] == [
+        {"role": "author", "name": "World Health Organization"}
+    ]
+
+
+def test_summarize_item_distinguishes_authors_and_editors():
+    from zotero_mcp.zotero.library import summarize_item
+
+    item = {
+        "key": "X",
+        "data": {
+            "itemType": "bookSection",
+            "title": "T",
+            "creators": [
+                {"creatorType": "author", "firstName": "Neil", "lastName": "Rowe"},
+                {"creatorType": "editor", "firstName": "Quanyan", "lastName": "Zhu"},
+            ],
+        },
+    }
+    creators = summarize_item(item)["creators"]
+    authors = [c["name"] for c in creators if c["role"] == "author"]
+    editors = [c["name"] for c in creators if c["role"] == "editor"]
+    assert authors == ["Neil Rowe"]
+    assert editors == ["Quanyan Zhu"]
+
+
+def test_inspect_saved_source_returns_structured_creators():
+    from zotero_mcp.tools.library import register_library_tools
+
+    class MixedCreatorClient(StubClient):
+        def request_json(self, method, path, **kwargs):
+            if path.endswith("/items/ABCD1234") and method == "GET":
+                return {
+                    "key": "ABCD1234",
+                    "version": 10,
+                    "data": {
+                        "itemType": "bookSection",
+                        "title": "Deception in LNCS",
+                        "creators": [
+                            {"creatorType": "author", "firstName": "Neil", "lastName": "Rowe"},
+                            {"creatorType": "editor", "firstName": "Quanyan", "lastName": "Zhu"},
+                        ],
+                    },
+                }, None
+            return super().request_json(method, path, **kwargs)
+
+    recorder = ToolRecorder()
+    register_library_tools(recorder, lambda: MixedCreatorClient())
+    result = recorder.call("inspect_saved_source", item_key="ABCD1234")
+    assert result["creators"] == [
+        {"role": "author", "name": "Neil Rowe"},
+        {"role": "editor", "name": "Quanyan Zhu"},
+    ]
 
 
 def test_collection_resolution_reports_ambiguous_matches():
